@@ -18,7 +18,6 @@ class VisionEngine:
         self.camera = None
 
     def gen_frames(self):
-        """Generator for Web View stream"""
         while True:
             if os.path.exists("live_buffer.jpg"):
                 with open("live_buffer.jpg", "rb") as f:
@@ -54,8 +53,6 @@ class VisionEngine:
         return frame if ret else None
 
     def run_loop(self):
-        """Main process loop. Flask and Camera are initialized here to avoid pickle errors."""
-        # 1. Start Web Server local to this process
         web_app = Flask(__name__)
         @web_app.route('/')
         def video_feed():
@@ -63,11 +60,9 @@ class VisionEngine:
         
         threading.Thread(target=lambda: web_app.run(host='0.0.0.0', port=5000), daemon=True).start()
 
-        # 2. Initialize Hardware
         self.init_camera()
         self.load_resources()
 
-        # 3. Execution Loop
         while True:
             if self.state.get('cam_reload'):
                 self.init_camera(); self.state['cam_reload'] = False

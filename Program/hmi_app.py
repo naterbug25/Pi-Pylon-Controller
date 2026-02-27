@@ -49,9 +49,13 @@ class HMIApp:
         
         btns = QHBoxLayout()
         self.btn_m = QPushButton("MODE"); self.btn_m.clicked.connect(self.toggle_mode)
+        if IS_WINDOWS: self.btn_m.hide() # Hide MODE button on Windows
+        
         self.btn_t = QPushButton("TRIGGER"); self.btn_t.clicked.connect(self.request_trigger)
         self.btn_s = QPushButton("SETTINGS"); self.btn_s.clicked.connect(self.open_settings)
         self.btn_tr = QPushButton("TRAIN LOCAL"); self.btn_tr.clicked.connect(self.start_training)
+        if IS_WINDOWS: self.btn_tr.hide() # Hide training on Windows
+        
         btns.addWidget(self.btn_m); btns.addWidget(self.btn_t); btns.addWidget(self.btn_s); btns.addWidget(self.btn_tr); left.addLayout(btns)
 
         io_panel = QHBoxLayout()
@@ -105,7 +109,7 @@ class HMIApp:
     def request_trigger(self): self.state['trigger_request'] = True
     def toggle_mode(self): self.state['mode'] = "TRAIN" if self.state['mode'] == "RUN" else "RUN"; self.update_ui_visibility()
     def update_ui_visibility(self): 
-        if self.state['mode'] == "RUN": self.teach_box.hide()
+        if self.state['mode'] == "RUN" or IS_WINDOWS: self.teach_box.hide() # Ensure hidden on Windows
         else: self.teach_box.show()
 
     def refresh(self):
