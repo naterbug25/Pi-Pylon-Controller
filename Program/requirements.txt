@@ -1,8 +1,10 @@
 "numpy<2.0"
-opencv-python
+opencv-contrib-python-headless numpy
 PyQt6
 flask
+pypylon
 pycomm3
+python-periphery
 msvc-runtime
 tensorflow==2.10.1
 --only-binary :all: mediapipe-model-maker
