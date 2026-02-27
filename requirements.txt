@@ -1,0 +1,6 @@
+opencv-python
+PyQt6
+flask
+pycomm3
+tensorflow
+--only-binary :all: mediapipe-model-maker
