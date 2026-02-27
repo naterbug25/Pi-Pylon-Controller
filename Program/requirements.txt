@@ -1,6 +1,8 @@
+"numpy<2.0"
 opencv-python
 PyQt6
 flask
 pycomm3
-tensorflow
+msvc-runtime
+tensorflow==2.10.1
 --only-binary :all: mediapipe-model-maker
