@@ -1,50 +1,23 @@
 #!/bin/bash
+# Pi-Pylon-Controller Modern Stack Setup (TF 2.16+ / NumPy 2.x)
 
-# --- Pi-Pylon-Controller Environment Setup ---
-# Designed for Raspberry Pi 4/5 running Raspberry Pi OS (64-bit)
+echo "--- Removing old environment ---"
+rm -rf .venv
 
-echo "Starting environment setup for Pi-Pylon-Controller..."
+echo "--- Installing System Dependencies ---"
+sudo apt-get update
+sudo apt-get install -y python3-pyqt6 libatlas-base-dev libqt5gui5 libqt5core5a libopenjp2-7
 
-# 1. Update System Packages
-sudo apt update
-sudo apt upgrade -y
-
-# 2. Install System Dependencies for OpenCV, PyQt6, and Basler
-# These are required for the GUI and Camera interface to function on Linux
-sudo apt install -y \
-    python3-venv \
-    python3-pip \
-    libqt6gui6 \
-    libqt6widgets6 \
-    libqt6core6 \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    libatlas-base-dev \
-    libusb-1.0-0-dev
-
-# 3. Create Virtual Environment
-echo "Creating virtual environment..."
-python3 -m venv .venv
-
-# 4. Activate Environment
+echo "--- Creating 64-bit .venv ---"
+python3 -m venv .venv --system-site-packages
 source .venv/bin/activate
 
-# 5. Upgrade Build Tools
-pip install --upgrade pip setuptools wheel
+echo "--- Installing Latest AI Stack ---"
+# Installing these together ensures they are compiled against the same NumPy version
+pip install --upgrade pip
+pip install "numpy>=2.0" "tensorflow>=2.16.1" "opencv-contrib-python-headless>=4.10"
+pip install pycomm3 flask python-periphery pypylon
+pip install "flatbuffers<2.0" tflite-support
 
-# 6. Install Python Dependencies
-# NOTE: NumPy is pinned below 2.0.0 to prevent TensorFlow ABI crashes.
-echo "Installing Python packages..."
-pip install "numpy<2.0.0" \
-    tensorflow \
-    opencv-python \
-    PyQt6 \
-    pycomm3 \
-    pypylon \
-    flask \
-    python-periphery
-
-echo "------------------------------------------------"
-echo "Setup Complete."
-echo "To activate the environment in the future, run: source .venv/bin/activate"
-echo "------------------------------------------------"
+echo "--- Verification ---"
+python3 -c "import tensorflow as tf; import numpy as np; print(f'TF: {tf.__version__} | NumPy: {np.__version__}')"
