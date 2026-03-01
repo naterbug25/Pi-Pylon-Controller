@@ -64,8 +64,10 @@ class VisionEngine:
 
             frame = self.grab_frame()
             if frame is None: time.sleep(0.1); continue
-
-            cv2.imwrite("live_buffer.jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
+                # Save to a temporary hidden file first
+            cv2.imwrite("live_buffer.tmp.jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
+                # Atomically replace the buffer file (prevents HMI from reading a half-written file)
+            os.replace("live_buffer.tmp.jpg", "live_buffer.jpg")
 
             if self.state.get('trigger_request'):
                 self.state['trigger_request'] = False

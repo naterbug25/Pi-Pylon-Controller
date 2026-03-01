@@ -3,10 +3,8 @@
     "program_list": [
         "Part_A"
     ],
-    "io_mode": "PLC",
-    "cam_source": "Webcam",
-    "basler_ip": "192.168.1.50",
     "plc_ip": "192.168.1.10",
+    "cam_source": "Webcam",
     "class_configs": {
         "0": {
             "name": "Class_0",

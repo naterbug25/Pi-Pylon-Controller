@@ -25,7 +25,7 @@ class HMIApp:
         self.window.setStyleSheet("background-color: #121212; color: #eee;")
         central = QWidget(); main_layout = QHBoxLayout(); main_layout.setContentsMargins(10,10,10,10)
 
-        # LEFT COLUMN
+        # --- LEFT COLUMN ---
         left = QVBoxLayout(); left.setSpacing(10)
         self.msg_lbl = QLabel("READY"); self.msg_lbl.setStyleSheet("font-size: 32px; font-weight: bold; color: #4CAF50;")
         self.msg_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter); left.addWidget(self.msg_lbl)
@@ -42,13 +42,12 @@ class HMIApp:
         if IS_WINDOWS: [b.hide() for b in [self.btn_m, self.btn_tr]]
         btns.addWidget(self.btn_m); btns.addWidget(self.btn_t); btns.addWidget(self.btn_tr); left.addLayout(btns)
 
-        # IO PANEL
         io_panel = QHBoxLayout()
-        in_box = QGroupBox("Input Status"); in_lay = QVBoxLayout(); self.lights_in = {k: PilotLight(k) for k in self.state['io_in'].keys()}
+        in_box = QGroupBox("Inputs"); in_lay = QVBoxLayout(); self.lights_in = {k: PilotLight(k) for k in self.state['io_in'].keys()}
         for l in self.lights_in.values(): in_lay.addWidget(l)
         in_box.setLayout(in_lay); io_panel.addWidget(in_box)
         
-        out_box = QGroupBox("Output Status"); out_lay = QVBoxLayout(); self.lights_out = {k: PilotLight(k) for k in self.state['io_out'].keys()}
+        out_box = QGroupBox("Outputs"); out_lay = QVBoxLayout(); self.lights_out = {k: PilotLight(k) for k in self.state['io_out'].keys()}
         for l in self.lights_out.values(): out_lay.addWidget(l)
         out_box.setLayout(out_lay); io_panel.addWidget(out_box)
         left.addLayout(io_panel)
@@ -60,8 +59,18 @@ class HMIApp:
         self.teach_box.setLayout(t_lay); left.addWidget(self.teach_box)
         main_layout.addLayout(left, 2)
 
-        # RIGHT COLUMN
+        # --- RIGHT COLUMN ---
         right = QVBoxLayout(); right.setSpacing(10)
+        
+        # Class Thresholds
+        right.addWidget(QLabel("CLASSES & THRESHOLDS"))
+        self.class_widgets = {}
+        for i in range(5):
+            r = QHBoxLayout(); n = QLineEdit(self.state['class_configs'][i]['name']); n.editingFinished.connect(self.update_cfg)
+            s = QDoubleSpinBox(); s.setRange(0, 1.0); s.setValue(self.state['class_configs'][i]['threshold']); s.valueChanged.connect(self.update_cfg)
+            r.addWidget(QLabel(f"#{i}")); r.addWidget(n); r.addWidget(s); right.addLayout(r); self.class_widgets[i] = (n, s)
+
+        # Program Management
         right.addWidget(QLabel("PROGRAM MANAGEMENT"))
         self.prog_list_ui = QListWidget(); self.prog_list_ui.setFixedHeight(120)
         for p in self.state['program_list']: self.prog_list_ui.addItem(p)
@@ -75,16 +84,20 @@ class HMIApp:
 
         right.addWidget(QLabel("INSPECTION LOG"))
         self.hist = QListWidget(); right.addWidget(self.hist)
-        main_layout.addLayout(right, 1)
+        
+        main_layout.addLayout(right, 1); central.setLayout(main_layout); self.window.setCentralWidget(central)
+        self.update_ui_visibility()
 
-        central.setLayout(main_layout); self.window.setCentralWidget(central); self.update_ui_visibility()
+    def update_cfg(self):
+        c = dict(self.state['class_configs'])
+        for i in range(5): c[i] = {'name': self.class_widgets[i][0].text(), 'threshold': self.class_widgets[i][1].value()}
+        self.state['class_configs'] = c; self.save_settings_to_disk()
 
     def add_program(self):
         name, ok = QInputDialog.getText(self.window, "New Job", "Enter Program Name:")
         if ok and name:
             if name not in self.state['program_list']:
-                self.state['program_list'].append(name); self.prog_list_ui.addItem(name)
-                self.save_settings_to_disk()
+                self.state['program_list'].append(name); self.prog_list_ui.addItem(name); self.save_settings_to_disk()
 
     def delete_program(self):
         curr = self.prog_list_ui.currentItem()
@@ -99,7 +112,7 @@ class HMIApp:
         self.state['active_program'] = item.text(); self.state['reload_request'] = True; self.save_settings_to_disk()
 
     def save_settings_to_disk(self):
-        d = {'active_program': self.state['active_program'], 'program_list': list(self.state['program_list']), 'plc_ip': self.state['plc_ip'], 'cam_source': self.state['cam_source']}
+        d = {'active_program': self.state['active_program'], 'program_list': list(self.state['program_list']), 'plc_ip': self.state['plc_ip'], 'cam_source': self.state['cam_source'], 'class_configs': {str(k): v for k, v in self.state['class_configs'].items()}}
         with open('config/settings.json', 'w') as f: json.dump(d, f, indent=4)
 
     def toggle_mode(self):
@@ -135,10 +148,15 @@ class HMIApp:
 
         f = "temp_capture.jpg" if self.state.get('last_captured_frame') else "live_buffer.jpg"
         if os.path.exists(f):
-            img = cv2.imread(f)
-            if img is not None:
-                r = cv2.cvtColor(img, cv2.COLOR_BGR2RGB); q = QImage(r.data, r.shape[1], r.shape[0], r.shape[1]*3, QImage.Format.Format_RGB888)
-                self.vid_lbl.setPixmap(QPixmap.fromImage(q))
+            try:
+                img = cv2.imread(f)
+                if img is not None:
+                    r = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    q = QImage(r.data, r.shape[1], r.shape[0], r.shape[1]*3, QImage.Format.Format_RGB888)
+                    self.vid_lbl.setPixmap(QPixmap.fromImage(q))
+            except Exception as e:
+                # Silently ignore read errors during file swaps to prevent freezing
+                pass
 
     def request_trigger(self): self.state['trigger_request'] = True
     def save_sample(self, folder):
