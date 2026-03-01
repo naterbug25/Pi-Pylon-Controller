@@ -17,11 +17,11 @@
     },
     "class_configs": {
         "0": {
-            "name": "Class_0",
+            "name": "Lotion",
             "threshold": 0.85
         },
         "1": {
-            "name": "Class_1",
+            "name": "Coaster",
             "threshold": 0.85
         },
         "2": {

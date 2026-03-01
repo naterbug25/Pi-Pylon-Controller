@@ -68,17 +68,23 @@ class HMIApp:
         # RIGHT
         right = QVBoxLayout()
         self.roi_tabs = QTabWidget()
+        
+        # --- FIX: Set the layout for the Search ROI tab ---
         s_tab = QWidget(); s_lay = QVBoxLayout(); self.s_sliders = {}
         for l, k in [("X Min", "x_min"), ("X Max", "x_max"), ("Y Min", "y_min"), ("Y Max", "y_max")]:
             r = QHBoxLayout(); s = QSlider(Qt.Orientation.Horizontal); s.setRange(0, 100); s.setValue(int(self.state['search_roi'][k]*100))
             s.valueChanged.connect(self.update_roi); r.addWidget(QLabel(l)); r.addWidget(s); s_lay.addLayout(r); self.s_sliders[k] = s
+        s_tab.setLayout(s_lay)
         self.roi_tabs.addTab(s_tab, "Search ROI")
         
+        # --- FIX: Set the layout for the Training Crop tab ---
         c_tab = QWidget(); c_lay = QVBoxLayout(); self.c_sliders = {}
         for l, k in [("X Min", "x_min"), ("X Max", "x_max"), ("Y Min", "y_min"), ("Y Max", "y_max")]:
             r = QHBoxLayout(); s = QSlider(Qt.Orientation.Horizontal); s.setRange(0, 100); s.setValue(int(self.state['crop_roi'][k]*100))
             s.valueChanged.connect(self.update_roi); r.addWidget(QLabel(l)); r.addWidget(s); c_lay.addLayout(r); self.c_sliders[k] = s
+        c_tab.setLayout(c_lay)
         self.roi_tabs.addTab(c_tab, "Training Crop")
+        
         right.addWidget(self.roi_tabs)
 
         right.addWidget(QLabel("CLASSES & THRESHOLDS"))
@@ -128,6 +134,8 @@ class HMIApp:
         cur_hb = self.state.get('heartbeat', 0)
         self.hb_light.active = (cur_hb != self.last_hb); self.last_hb = cur_hb; self.hb_light.update()
         st = self.state.get('result_status', 'READY'); self.msg_lbl.setText(st)
+        color = '#4CAF50' if any(x in st for x in ['PASS', 'READY', 'SUCCESS']) else '#F44336'
+        self.msg_lbl.setStyleSheet(f"font-size: 32px; font-weight: bold; color: {color};")
         self.pbar.setValue(self.state.get('training_progress', 0))
         for k, v in self.state['io_in'].items(): self.lights_in[k].active = v; self.lights_in[k].update()
         for k, v in self.state['io_out'].items(): self.lights_out[k].active = v; self.lights_out[k].update()
