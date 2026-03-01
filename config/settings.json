@@ -36,5 +36,9 @@
             "name": "Class_4",
             "threshold": 0.85
         }
-    }
+    },
+    "plc_ip": "192.168.1.10",
+    "basler_ip": "192.168.1.50",
+    "cam_source": "Webcam",
+    "io_mode": "PLC"
 }

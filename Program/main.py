@@ -3,12 +3,14 @@ import os, json, sys
 from vision_engine import VisionEngine
 from hmi_app import HMIApp
 
+# Fix for the Raspberry Pi Bookworm "Wayland" warning
+os.environ["QT_QPA_PLATFORM"] = "xcb"
+
 def start_system():
     for folder in ['models', 'config'] + [f'dataset/Class_{i}' for i in range(5)]:
         os.makedirs(folder, exist_ok=True)
 
     settings_path = 'config/settings.json'
-    # Default ROIs: Crop is center 50%, Search is full 100%
     defaults = {
         'program_list': ["Part_A"], 'active_program': "Part_A",
         'io_mode': 'PLC', 'cam_source': 'Webcam',
@@ -17,16 +19,19 @@ def start_system():
         'crop_roi': {'x_min': 0.25, 'x_max': 0.75, 'y_min': 0.25, 'y_max': 0.75},
         'search_roi': {'x_min': 0.0, 'x_max': 1.0, 'y_min': 0.0, 'y_max': 1.0}
     }
+    
     if os.path.exists(settings_path):
         try:
-            with open(settings_path, 'r') as f: defaults.update(json.load(f))
+            with open(settings_path, 'r') as f:
+                loaded = json.load(f)
+                defaults.update(loaded)
         except: pass
 
     manager = mp.Manager()
     state = manager.dict({
         'mode': 'RUN', 'trigger_request': False, 'last_captured_frame': False,
         'result_status': "READY", 'training_progress': 0, 'history': manager.list(),
-        'reload_request': True, 'cam_reload': True,
+        'reload_request': True, 'cam_reload': True, 'heartbeat': 0,
         'active_program': defaults['active_program'],
         'program_list': manager.list(defaults['program_list']),
         'io_mode': defaults['io_mode'], 'cam_source': defaults['cam_source'],
@@ -38,9 +43,22 @@ def start_system():
         'io_out': manager.dict({'PASS': False, 'FAIL': False, 'RUNNING': False})
     })
 
+    # Start the Vision Engine in the background
     engine = VisionEngine(state)
-    p = mp.Process(target=engine.run_loop); p.daemon = True; p.start()
-    HMIApp(state).run()
+    p = mp.Process(target=engine.run_loop, daemon=True)
+    p.start()
+
+    try:
+        # Start the HMI (This will block until the user closes the window)
+        HMIApp(state).run()
+    finally:
+        # --- GRACEFUL SHUTDOWN ---
+        # When the HMI closes, aggressively terminate the camera and port 5000 process
+        print("Shutting down Vision Engine...")
+        if p.is_alive():
+            p.terminate()
+            p.join()
+        print("System safely shut down. Camera released.")
 
 if __name__ == "__main__":
     start_system()

@@ -1,4 +1,4 @@
-import cv2, time, os, numpy as np, platform, threading
+import cv2, time, os, numpy as np, threading
 import tensorflow as tf
 from pycomm3 import LogixDriver
 from flask import Flask, Response
@@ -36,22 +36,6 @@ class VisionEngine:
         else:
             self.camera = cv2.VideoCapture(0)
 
-    def grab_frame(self):
-        if not self.camera: return None
-        if self.state['cam_source'] == 'Basler':
-            try:
-                res = self.camera.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
-                if res.GrabSucceeded():
-                    img = res.Array; res.Release(); return img
-            except: return None
-        ret, frame = self.camera.read(); return frame if ret else None
-
-    def get_crop(self, frame, roi_dict):
-        h, w = frame.shape[:2]
-        x1, x2 = int(roi_dict['x_min']*w), int(roi_dict['x_max']*w)
-        y1, y2 = int(roi_dict['y_min']*h), int(roi_dict['y_max']*h)
-        return frame[y1:max(y1+10, y2), x1:max(x1+10, x2)]
-
     def run_loop(self):
         app = Flask(__name__)
         @app.route('/')
@@ -59,20 +43,32 @@ class VisionEngine:
         threading.Thread(target=lambda: app.run(host='0.0.0.0', port=5000), daemon=True).start()
 
         self.init_camera(); self.load_resources()
+        
         while True:
+            self.state['heartbeat'] += 1
             if self.state.get('cam_reload'): self.init_camera(); self.state['cam_reload'] = False
-            if self.state['io_mode'] == 'PLC': self.sync_plc()
             if self.state.get('reload_request'): self.load_resources(); self.state['reload_request'] = False
 
-            frame = self.grab_frame()
-            if frame is None: time.sleep(0.1); continue
+            # PLC Sync (Non-blocking)
+            if self.state['io_mode'] == 'PLC' and self.state['heartbeat'] % 40 == 0:
+                threading.Thread(target=self.sync_plc, daemon=True).start()
 
-            # RENDER OVERLAYS
+            frame = None
+            if self.state['cam_source'] == 'Basler' and self.camera:
+                try:
+                    res = self.camera.RetrieveResult(500, pylon.TimeoutHandling_ThrowException)
+                    if res.GrabSucceeded(): frame = res.Array; res.Release()
+                except: pass
+            elif self.camera:
+                ret, frame = self.camera.read()
+
+            if frame is None: 
+                time.sleep(0.01); continue
+
+            # DRAW BOXES
             disp = frame.copy(); h, w = disp.shape[:2]
-            # Search ROI (Yellow)
             s = self.state['search_roi']
             cv2.rectangle(disp, (int(s['x_min']*w), int(s['y_min']*h)), (int(s['x_max']*w), int(s['y_max']*h)), (0, 255, 255), 2)
-            # Crop ROI (Red) - Only show in TRAIN mode
             if self.state['mode'] == 'TRAIN':
                 c = self.state['crop_roi']
                 cv2.rectangle(disp, (int(c['x_min']*w), int(c['y_min']*h)), (int(c['x_max']*w), int(c['y_max']*h)), (0, 0, 255), 2)
@@ -80,18 +76,25 @@ class VisionEngine:
             cv2.imwrite("live_buffer.tmp.jpg", disp, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
             os.replace("live_buffer.tmp.jpg", "live_buffer.jpg")
 
+            # ATOMIC TRIGGER DETECT
             if self.state.get('trigger_request'):
-                self.state['trigger_request'] = False
+                self.state['trigger_request'] = False # Clear instantly
+                self.state['io_out']['RUNNING'] = True
+                
+                # Mode-based ROI Selection
+                roi = self.state['search_roi'] if self.state['mode'] == 'RUN' else self.state['crop_roi']
+                x1, x2, y1, y2 = int(roi['x_min']*w), int(roi['x_max']*w), int(roi['y_min']*h), int(roi['y_max']*h)
+                cropped = frame[y1:max(y1+10, y2), x1:max(x1+10, x2)]
+                
                 if self.state['mode'] == 'RUN':
-                    # SEARCH MODE: Use the Search ROI
-                    self.perform_inspection(self.get_crop(frame, self.state['search_roi']))
+                    self.perform_inspection(cropped)
                 else:
-                    # TRAINING MODE: Use the Crop ROI
-                    cropped = self.get_crop(frame, self.state['crop_roi'])
                     cv2.imwrite("temp_capture.jpg", cropped)
                     self.state['last_captured_frame'] = True
-                    self.state['result_status'] = "CROP ROI CAPTURED"
-            time.sleep(0.01)
+                    self.state['result_status'] = "IMAGE CAPTURED"
+                
+                self.state['io_out']['RUNNING'] = False
+            time.sleep(0.001)
 
     def load_resources(self):
         p = f"models/{self.state['active_program']}.keras"
@@ -108,7 +111,6 @@ class VisionEngine:
 
     def perform_inspection(self, img_input):
         if self.net is None: return
-        self.state['io_out']['RUNNING'] = True
         img = cv2.resize(img_input, (224, 224))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img_array = tf.expand_dims(tf.keras.utils.img_to_array(img), 0)
@@ -120,5 +122,8 @@ class VisionEngine:
 
         self.state['result_status'] = f"{cfg['name']}: {'PASS' if is_pass else 'FAIL'} {score:.1%}"
         self.state['io_out']['PASS'] = is_pass; self.state['io_out']['FAIL'] = not is_pass
+        
+        # Build Forensic Breakdown
+        details = " | ".join([f"{self.state['class_configs'][i]['name']}: {p:.0%}" for i, p in enumerate(preds)])
         self.state['history'].append(f"[{time.strftime('%H:%M:%S')}] {self.state['result_status']}")
-        time.sleep(0.1); self.state['io_out']['RUNNING'] = False
+        self.state['history'].append(f"   > {details}")
