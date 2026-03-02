@@ -4,10 +4,10 @@
         "Part_A"
     ],
     "crop_roi": {
-        "x_min": 0.25,
-        "x_max": 0.75,
-        "y_min": 0.25,
-        "y_max": 0.75
+        "x_min": 0.36,
+        "x_max": 0.65,
+        "y_min": 0.35,
+        "y_max": 0.74
     },
     "search_roi": {
         "x_min": 0.0,
@@ -18,10 +18,10 @@
     "class_configs": {
         "0": {
             "name": "Lotion",
-            "threshold": 0.85
+            "threshold": 0.65
         },
         "1": {
-            "name": "Coaster",
+            "name": "Empty",
             "threshold": 0.85
         },
         "2": {
