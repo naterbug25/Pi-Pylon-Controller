@@ -1,7 +1,12 @@
-import cv2, time, os, numpy as np, threading
-import tensorflow as tf
+import cv2, time, os, threading
 from pycomm3 import LogixDriver
 from flask import Flask, Response
+
+try:
+    from ultralytics import YOLO
+    YOLO_SUPPORT = True
+except:
+    YOLO_SUPPORT = False
 
 try:
     from pypylon import pylon
@@ -12,7 +17,8 @@ except:
 class VisionEngine:
     def __init__(self, state):
         self.state = state
-        self.net = None; self.camera = None
+        self.model = None
+        self.camera = None
 
     def gen_frames(self):
         while True:
@@ -42,14 +48,14 @@ class VisionEngine:
         def video(): return Response(self.gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
         threading.Thread(target=lambda: app.run(host='0.0.0.0', port=5000), daemon=True).start()
 
-        self.init_camera(); self.load_resources()
+        self.init_camera()
+        self.load_resources()
         
         while True:
             self.state['heartbeat'] += 1
             if self.state.get('cam_reload'): self.init_camera(); self.state['cam_reload'] = False
             if self.state.get('reload_request'): self.load_resources(); self.state['reload_request'] = False
 
-            # PLC Sync (Non-blocking)
             if self.state['io_mode'] == 'PLC' and self.state['heartbeat'] % 40 == 0:
                 threading.Thread(target=self.sync_plc, daemon=True).start()
 
@@ -62,45 +68,35 @@ class VisionEngine:
             elif self.camera:
                 ret, frame = self.camera.read()
 
-            if frame is None: 
-                time.sleep(0.01); continue
+            if frame is None: time.sleep(0.01); continue
 
-            # DRAW BOXES
-            disp = frame.copy(); h, w = disp.shape[:2]
-            s = self.state['search_roi']
-            cv2.rectangle(disp, (int(s['x_min']*w), int(s['y_min']*h)), (int(s['x_max']*w), int(s['y_max']*h)), (0, 255, 255), 2)
-            if self.state['mode'] == 'TRAIN':
-                c = self.state['crop_roi']
-                cv2.rectangle(disp, (int(c['x_min']*w), int(c['y_min']*h)), (int(c['x_max']*w), int(c['y_max']*h)), (0, 0, 255), 2)
-
+            # Save clean frame for HMI live feed
+            disp = frame.copy()
             cv2.imwrite("live_buffer.tmp.jpg", disp, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
             os.replace("live_buffer.tmp.jpg", "live_buffer.jpg")
 
-            # ATOMIC TRIGGER DETECT
+            # ATOMIC TRIGGER
             if self.state.get('trigger_request'):
-                self.state['trigger_request'] = False # Clear instantly
+                self.state['trigger_request'] = False
                 self.state['io_out']['RUNNING'] = True
                 
-                # Mode-based ROI Selection
-                roi = self.state['search_roi'] if self.state['mode'] == 'RUN' else self.state['crop_roi']
-                x1, x2, y1, y2 = int(roi['x_min']*w), int(roi['x_max']*w), int(roi['y_min']*h), int(roi['y_max']*h)
-                cropped = frame[y1:max(y1+10, y2), x1:max(x1+10, x2)]
-                
                 if self.state['mode'] == 'RUN':
-                    self.perform_inspection(cropped)
+                    self.perform_inspection(frame)
                 else:
-                    cv2.imwrite("temp_capture.jpg", cropped)
+                    cv2.imwrite("temp_capture.jpg", frame)
                     self.state['last_captured_frame'] = True
-                    self.state['result_status'] = "IMAGE CAPTURED"
+                    self.state['result_status'] = "DRAW BOX & SAVE ANNOTATION"
                 
                 self.state['io_out']['RUNNING'] = False
             time.sleep(0.001)
 
     def load_resources(self):
-        p = f"models/{self.state['active_program']}.keras"
-        if os.path.exists(p):
-            try: self.net = tf.keras.models.load_model(p)
-            except: self.net = None
+        p = f"models/{self.state['active_program']}.pt"
+        if os.path.exists(p) and YOLO_SUPPORT:
+            try: self.model = YOLO(p)
+            except: self.model = None
+        else:
+            self.model = None
 
     def sync_plc(self):
         try:
@@ -110,20 +106,36 @@ class VisionEngine:
         except: pass
 
     def perform_inspection(self, img_input):
-        if self.net is None: return
-        img = cv2.resize(img_input, (224, 224))
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img_array = tf.expand_dims(tf.keras.utils.img_to_array(img), 0)
-        img_array = tf.keras.applications.mobilenet_v2.preprocess_input(img_array)
-
-        preds = self.net.predict(img_array, verbose=0)[0]
-        idx = int(np.argmax(preds)); score = float(preds[idx])
-        cfg = self.state['class_configs'][idx]; is_pass = score >= cfg['threshold']
-
-        self.state['result_status'] = f"{cfg['name']}: {'PASS' if is_pass else 'FAIL'} {score:.1%}"
-        self.state['io_out']['PASS'] = is_pass; self.state['io_out']['FAIL'] = not is_pass
+        if self.model is None: 
+            self.state['result_status'] = "ERROR: NO YOLO MODEL FOUND"
+            return
         
-        # Build Forensic Breakdown
-        details = " | ".join([f"{self.state['class_configs'][i]['name']}: {p:.0%}" for i, p in enumerate(preds)])
+        # YOLO native full-frame inference
+        results = self.model(img_input, verbose=False)[0]
+        
+        # --- NEW: Draw the bounding boxes onto the image ---
+        annotated_frame = results.plot()
+        cv2.imwrite("temp_capture.jpg", annotated_frame)
+        self.state['last_captured_frame'] = True # Freeze HMI on this image
+        
+        is_pass = False
+        highest_conf = 0.0
+        best_class = -1
+        
+        for box in results.boxes:
+            conf = float(box.conf[0])
+            cls_id = int(box.cls[0])
+            if conf > highest_conf:
+                highest_conf = conf
+                best_class = cls_id
+                
+        if best_class != -1:
+            cfg = self.state['class_configs'][best_class]
+            is_pass = highest_conf >= cfg['threshold']
+            self.state['result_status'] = f"FOUND {cfg['name']}: {'PASS' if is_pass else 'FAIL'} {highest_conf:.1%}"
+        else:
+            self.state['result_status'] = "NO OBJECT DETECTED"
+
+        self.state['io_out']['PASS'] = is_pass
+        self.state['io_out']['FAIL'] = not is_pass
         self.state['history'].append(f"[{time.strftime('%H:%M:%S')}] {self.state['result_status']}")
-        self.state['history'].append(f"   > {details}")

@@ -14,10 +14,17 @@ source .venv/bin/activate
 
 echo "--- Installing Latest AI Stack ---"
 # Installing these together ensures they are compiled against the same NumPy version
+# 1. Upgrade pip
 pip install --upgrade pip
-pip install "numpy>=2.0" "tensorflow>=2.16.1" "opencv-contrib-python-headless>=4.10"
+
+# 2. Install UI and Vision Core
+pip install PyQt6 "opencv-contrib-python-headless>=4.10"
+
+# 3. Install Hardware and Communication protocols
 pip install pycomm3 flask python-periphery pypylon
-pip install "flatbuffers<2.0" tflite-support
+
+# 4. Install YOLO and force the NumPy downgrade simultaneously 
+pip install ultralytics "numpy<2"
 
 echo "--- Verification ---"
 python3 -c "import tensorflow as tf; import numpy as np; print(f'TF: {tf.__version__} | NumPy: {np.__version__}')"

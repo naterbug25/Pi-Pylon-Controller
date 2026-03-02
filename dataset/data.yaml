@@ -1,0 +1,9 @@
+names:
+- Class_0
+- Class_1
+- Class_2
+- Class_3
+- Class_4
+nc: 5
+train: /home/pi/Pi-Pylon-Controller/dataset/images/train
+val: /home/pi/Pi-Pylon-Controller/dataset/images/train

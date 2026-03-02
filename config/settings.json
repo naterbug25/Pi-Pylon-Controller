@@ -3,25 +3,13 @@
     "program_list": [
         "Part_A"
     ],
-    "crop_roi": {
-        "x_min": 0.0,
-        "x_max": 1.0,
-        "y_min": 0.0,
-        "y_max": 1.0
-    },
-    "search_roi": {
-        "x_min": 0.0,
-        "x_max": 1.0,
-        "y_min": 0.0,
-        "y_max": 1.0
-    },
     "class_configs": {
         "0": {
-            "name": "Lotion",
-            "threshold": 0.65
+            "name": "Class_0",
+            "threshold": 0.85
         },
         "1": {
-            "name": "Empty",
+            "name": "Class_1",
             "threshold": 0.85
         },
         "2": {
