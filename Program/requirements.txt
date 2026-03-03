@@ -1,8 +1,11 @@
-"numpy<2.0"
-opencv-python
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch
+torchvision
+torchaudio
 PyQt6
-flask
+opencv-contrib-python-headless>=4.10
 pycomm3
-msvc-runtime
-tensorflow==2.10.1
---only-binary :all: mediapipe-model-maker
+flask
+pypylon
+ultralytics
+numpy<2
