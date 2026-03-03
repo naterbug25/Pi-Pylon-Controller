@@ -1,8 +1,5 @@
 import os, yaml, shutil
-try:
-    from ultralytics import YOLO
-except:
-    pass
+from ultralytics import YOLO
 
 def train_local_model(model_name, state, num_classes=5):
     state['training_progress'] = 0
@@ -28,29 +25,28 @@ def train_local_model(model_name, state, num_classes=5):
 
         model.add_callback("on_fit_epoch_end", on_fit_epoch_end)
 
-        # Start YOLO Training
+        # Start GPU Training (50 epochs, 320 imgsz for speed)
         abs_project_path = os.path.abspath('models')
         results = model.train(
             data=yaml_path, 
-            epochs=10, 
-            imgsz=640,
+            epochs=50, 
+            imgsz=320,
             project=abs_project_path,
             name=model_name,
             exist_ok=True
         )
 
-        # --- FIX: Dynamically hunt for the generated weights file ---
+        # Dynamically hunt for the generated weights file
         best_pt = None
         
-        # 1. Try to ask YOLO exactly where it saved it
         if hasattr(model, 'trainer') and hasattr(model.trainer, 'save_dir'):
             best_pt = os.path.join(model.trainer.save_dir, 'weights', 'best.pt')
         
-        # 2. Fallback search paths based on YOLO version quirks
         fallbacks = [
             f"{abs_project_path}/{model_name}/weights/best.pt",
             f"runs/detect/models/{model_name}/weights/best.pt",
-            f"runs/detect/{model_name}/weights/best.pt"
+            f"runs/detect/{model_name}/weights/best.pt",
+            f"runs/detect/train/weights/best.pt"
         ]
         
         if not best_pt or not os.path.exists(best_pt):

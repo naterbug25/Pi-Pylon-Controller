@@ -1,9 +1,11 @@
 import multiprocessing as mp
-import os, json, sys
+import os, json, platform
 from vision_engine import VisionEngine
 from hmi_app import HMIApp
 
-os.environ["QT_QPA_PLATFORM"] = "xcb"
+# Cross-Platform Display Fix (Prevents Windows crash)
+if platform.system() == "Linux":
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
 
 def start_system():
     # Setup strictly for YOLO (images and labels)

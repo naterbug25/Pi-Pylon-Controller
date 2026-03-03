@@ -5,5 +5,5 @@ names:
 - Class_3
 - Class_4
 nc: 5
-train: /home/pi/Pi-Pylon-Controller/dataset/images/train
-val: /home/pi/Pi-Pylon-Controller/dataset/images/train
+train: C:\Users\natem\OneDrive\Documents\Projects\Pi-Pylon-Controller\dataset\images\train
+val: C:\Users\natem\OneDrive\Documents\Projects\Pi-Pylon-Controller\dataset\images\train

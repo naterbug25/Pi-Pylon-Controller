@@ -1,4 +1,4 @@
-import cv2, time, os, threading
+import cv2, time, os, threading, platform
 from pycomm3 import LogixDriver
 from flask import Flask, Response
 
@@ -19,12 +19,15 @@ class VisionEngine:
         self.state = state
         self.model = None
         self.camera = None
+        self.is_windows = platform.system() == "Windows"
 
     def gen_frames(self):
         while True:
             if os.path.exists("live_buffer.jpg"):
-                with open("live_buffer.jpg", "rb") as f:
-                    yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + f.read() + b'\r\n')
+                try:
+                    with open("live_buffer.jpg", "rb") as f:
+                        yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + f.read() + b'\r\n')
+                except: pass # Ignore Windows read collisions
             time.sleep(0.05)
 
     def init_camera(self):
@@ -33,6 +36,7 @@ class VisionEngine:
                 if hasattr(self.camera, 'release'): self.camera.release()
                 if hasattr(self.camera, 'Close'): self.camera.Close()
             except: pass
+            
         if self.state['cam_source'] == 'Basler' and BASLER_SUPPORT:
             try:
                 info = pylon.DeviceInfo(); info.SetIpAddress(self.state['basler_ip'])
@@ -40,7 +44,8 @@ class VisionEngine:
                 self.camera.Open(); self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
             except: self.camera = None
         else:
-            self.camera = cv2.VideoCapture(0)
+            # On Windows, cv2.CAP_DSHOW prevents camera initialization hangs
+            self.camera = cv2.VideoCapture(2, cv2.CAP_DSHOW if self.is_windows else cv2.CAP_ANY)
 
     def run_loop(self):
         app = Flask(__name__)
@@ -70,10 +75,13 @@ class VisionEngine:
 
             if frame is None: time.sleep(0.01); continue
 
-            # Save clean frame for HMI live feed
+            # Cross-Platform Safe File Swap
             disp = frame.copy()
             cv2.imwrite("live_buffer.tmp.jpg", disp, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
-            os.replace("live_buffer.tmp.jpg", "live_buffer.jpg")
+            try:
+                os.replace("live_buffer.tmp.jpg", "live_buffer.jpg")
+            except PermissionError:
+                pass # Windows file lock fallback
 
             # ATOMIC TRIGGER
             if self.state.get('trigger_request'):
@@ -83,6 +91,7 @@ class VisionEngine:
                 if self.state['mode'] == 'RUN':
                     self.perform_inspection(frame)
                 else:
+                    # Freeze frame for annotation
                     cv2.imwrite("temp_capture.jpg", frame)
                     self.state['last_captured_frame'] = True
                     self.state['result_status'] = "DRAW BOX & SAVE ANNOTATION"
@@ -95,8 +104,7 @@ class VisionEngine:
         if os.path.exists(p) and YOLO_SUPPORT:
             try: self.model = YOLO(p)
             except: self.model = None
-        else:
-            self.model = None
+        else: self.model = None
 
     def sync_plc(self):
         try:
@@ -110,24 +118,21 @@ class VisionEngine:
             self.state['result_status'] = "ERROR: NO YOLO MODEL FOUND"
             return
         
-        # YOLO native full-frame inference
-        results = self.model(img_input, verbose=False)[0]
+        # YOLO native full-frame inference (conf=0.1 to catch weak guesses)
+        results = self.model(img_input, conf=0.1, verbose=False)[0]
         
-        # --- NEW: Draw the bounding boxes onto the image ---
+        # Draw bounding boxes onto the image
         annotated_frame = results.plot()
         cv2.imwrite("temp_capture.jpg", annotated_frame)
-        self.state['last_captured_frame'] = True # Freeze HMI on this image
+        self.state['last_captured_frame'] = True 
         
-        is_pass = False
-        highest_conf = 0.0
-        best_class = -1
+        is_pass = False; highest_conf = 0.0; best_class = -1
         
         for box in results.boxes:
             conf = float(box.conf[0])
             cls_id = int(box.cls[0])
             if conf > highest_conf:
-                highest_conf = conf
-                best_class = cls_id
+                highest_conf = conf; best_class = cls_id
                 
         if best_class != -1:
             cfg = self.state['class_configs'][best_class]
@@ -136,6 +141,5 @@ class VisionEngine:
         else:
             self.state['result_status'] = "NO OBJECT DETECTED"
 
-        self.state['io_out']['PASS'] = is_pass
-        self.state['io_out']['FAIL'] = not is_pass
+        self.state['io_out']['PASS'] = is_pass; self.state['io_out']['FAIL'] = not is_pass
         self.state['history'].append(f"[{time.strftime('%H:%M:%S')}] {self.state['result_status']}")

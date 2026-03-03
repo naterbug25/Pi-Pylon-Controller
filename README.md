@@ -1,133 +1,140 @@
-1. System Overview
-The Pi-Pylon-Controller is an industrial-grade edge computer vision system designed to run on a Raspberry Pi (ARM64). It features real-time image acquisition, local deep learning model training (Transfer Learning), dual-Region of Interest (ROI) processing, and industrial PLC handshaking via EtherNet/IP.
+# Pi-Pylon Controller (YOLO Edition)
 
-To ensure the user interface remains highly responsive during heavy AI inference or network timeouts, the system strictly relies on a Dual-Process Architecture.
+An open-source, industrial edge AI vision system built for Raspberry Pi and Windows. This system utilizes the **YOLOv8** object detection architecture to locate and verify objects across an entire camera field of view, completely eliminating the need for strict, static bounding boxes. 
 
-2. Architecture & Inter-Process Communication (IPC)
-2.1 The Multi-Process Split
-The system is divided into two primary isolated processes:
+It features a built-in PyQt6 Human-Machine Interface (HMI) with live drag-and-drop annotation, on-device model training, Allen-Bradley PLC integration, and support for industrial Basler GigE cameras.
 
-Main Process (HMI & Orchestrator): Manages the graphical user interface, user inputs, and system bootstrapping.
 
-Daemon Process (Vision Engine): A high-priority background loop that handles camera hardware, neural network inference, and PLC communications.
 
-2.2 Shared State Management
-Communication between the two processes occurs via a multiprocessing.Manager().dict(). This shared dictionary acts as the single source of truth for the system.
+## Features
+* **YOLOv8 Object Detection**: Natively searches the full frame (scale and location invariant).
+* **Cross-Platform**: Runs on Raspberry Pi (deployment) and Windows PCs with NVIDIA GPUs (rapid training).
+* **Live HMI Annotation**: Draw bounding boxes directly on the live camera feed to teach the AI new parts.
+* **On-Device Training**: Train custom neural networks locally without needing the cloud.
+* **PLC Integration**: Communicates directly with Allen-Bradley PLCs via Ethernet/IP (Pycomm3).
+* **Industrial Camera Support**: Built-in support for Basler GigE Machine Vision cameras (via Pypylon) or standard USB Webcams.
+* **MJPEG Streaming**: Serves a live camera feed over the network via a lightweight Flask server.
 
-Flags: trigger_request, reload_request, cam_reload.
+---
 
-Telemetry: result_status, training_progress, history (list), heartbeat (integer counter).
+## Hardware Requirements
+To fully recreate this system, you will need:
+1. **Compute**: A Raspberry Pi 4/5 (for edge deployment) OR a Windows PC with an NVIDIA GPU (for rapid training).
+2. **Camera**: A standard USB Webcam OR a Basler GigE Industrial Camera.
+3. **Trigger (Optional)**: An Allen-Bradley PLC (e.g., Micro800, CompactLogix) for industrial triggering, or simply use the HMI "Trigger" button.
 
-Hardware IO: io_in (Trigger), io_out (Pass, Fail, Running).
+---
 
-Configuration: active_program, cam_source, plc_ip, basler_ip, class_configs (dict of class names and thresholds).
+## Installation & Setup
 
-Spatial Data: search_roi and crop_roi (bounding box coordinates stored as percentages from 0.0 to 1.0).
+Because this system requires complex math libraries, it is highly recommended to install the dependencies inside a Python Virtual Environment.
 
-2.3 Atomic File Swapping
-To prevent the HMI from reading a corrupted or partially-written video frame, the Vision Engine writes live camera feeds to a temporary file (live_buffer.tmp.jpg) and uses a native OS atomic replace operation (os.replace) to overwrite the active file (live_buffer.jpg).
+### 1. Clone the Repository
+Clone or download these four core files into a single project directory:
+* `main.py`
+* `vision_engine.py`
+* `hmi_app.py`
+* `trainer.py`
 
-3. Core Modules & Functionality
-3.1 The Orchestrator (Bootstrapper)
-Directory Management: Upon startup, it ensures the existence of required directories (models/, config/, and dataset/Class_0 through Class_4).
+### 2. Create a Virtual Environment
+Open your terminal or command prompt in the project directory:
+```bash
+python -m venv venv
+Activate the environment:
 
-State Hydration: Reads config/settings.json to load the last known IP addresses, ROI configurations, and active program, injecting them into the shared state.
+Windows: .\venv\Scripts\activate
 
-Graceful Shutdown: Implements a try/finally block. When the HMI is closed, it explicitly terminates the background Vision Engine process using p.terminate() and p.join() to prevent "zombie" processes from keeping the camera or web ports locked.
+Linux/Raspberry Pi: source venv/bin/activate
 
-Wayland Override: Forces the Qt framework to use the xcb platform plugin to maintain compatibility with newer Raspberry Pi OS versions.
+3. Install Dependencies
+Create a requirements.txt file in your directory with the following contents. (Note: The numpy version restriction is critical to prevent a known compatibility crash with OpenCV/Matplotlib).
 
-3.2 The Vision Engine (Hardware & AI Loop)
-Runs a continuous while True loop that performs the following:
+If using a Windows PC with an NVIDIA GPU (Recommended for Training):
 
-Heartbeat & Sync: Increments a heartbeat counter every iteration. Every 40-50 ticks, it spins off an asynchronous, non-blocking thread to read/write tags to the PLC using the pycomm3 library.
-
-Camera Acquisition: Supports USB Webcams (via OpenCV) and Basler GigE cameras (via pypylon). Uses a "Latest Image Only" grabbing strategy to prevent buffer latency.
-
-Dual-ROI Implementation: * Draws two distinct bounding boxes on the live feed: a Yellow Box for the Search Area, and a Red Box for the Training Area.
-
-Atomic Trigger Handshake: When trigger_request is True, it immediately sets it back to False (preventing race conditions).
-
-If in RUN mode: It crops the image to the Search ROI, runs AI inference, and outputs PASS/FAIL to the PLC.
-
-If in TRAIN mode: It crops the image to the Training ROI, freezes the frame by saving it as temp_capture.jpg, and waits for the HMI to categorize it.
-
-MJPEG Streaming: Hosts a lightweight Flask server on port 5000 that serves the atomic live_buffer.jpg to any web browser on the network.
-
-3.3 The HMI Application (PyQt6 UI)
-A dark-themed industrial dashboard updating at 30 FPS via a QTimer.
-
-Live Video Panel: Displays the live_buffer.jpg or freezes on temp_capture.jpg after a trigger in TRAIN mode.
-
-Status Header & Heartbeat: A large text label showing the current mode/result, flanked by a custom-drawn Pilot Light that flashes based on the Vision Engine's heartbeat integer.
-
-IO Pilot Lights: Custom UI widgets mapping directly to the PLC's input (Trigger) and outputs (Pass, Fail, Running).
-
-Tabbed ROI Controllers: Two separate tabs containing horizontal sliders to adjust x_min, x_max, y_min, and y_max for the Search and Crop ROIs.
-
-Class Configurator: Text boxes to rename the 5 standard classes and spinboxes to adjust the decimal confidence threshold (0.0 to 1.0) required to trigger a PASS.
-
-Job Management: A List Widget containing saved programs. Allows creating new jobs and deleting old ones. Changes here trigger a model reload in the Vision Engine.
-
-Forensic Logger: A scrolling list showing the historical results. Displays the winning class in bright text, followed by an indented, dimmed string showing the exact percentage breakdown of all 5 classes for deep-dive diagnostics.
-
-Settings Dialog: A popup to configure the Camera Source (Webcam/Basler), Basler IP, PLC IP, and IO Mode (PLC/GPIO).
-
-3.4 The Local Trainer (Machine Learning)
-Executes within a background thread spawned by the HMI to prevent UI freezing during model compilation.
-
-Architecture: Uses a MobileNetV2 base architecture imported from TensorFlow/Keras. The ImageNet weights are frozen. A GlobalAveragePooling2D and a Dense softmax output layer are appended.
-
-Dynamic Head: Automatically determines the number of output classes based on which dataset/Class_X folders actually contain valid images. Requires at least 2 populated classes.
-
-Pipeline: Loads images at 224x224 resolution with a 20% validation split.
-
-HMI Callback: Implements a custom tf.keras.callbacks.Callback to update the shared training_progress integer at the end of each epoch, which drives the HMI progress bar.
-
-Native Keras Format: Saves the final compiled model as a .keras file to bypass flatbuffer conversion issues common to ARM64 TFLite deployments.
-
-4. File Schema & Data Structures
-4.1 Folder Structure Layout
 Plaintext
-/home/pi/Pi-Pylon-Controller/
-├── main.py
-├── vision_engine.py
-├── hmi_app.py
-├── trainer.py
-├── config/
-│   └── settings.json
-├── models/
-│   ├── Part_A.keras
-│   └── [Custom_Job_Names].keras
-└── dataset/
-    ├── Class_0/  (e.g., Target Object)
-    ├── Class_1/  (e.g., Background/Negative)
-    ├── Class_2/
-    ├── Class_3/
-    └── Class_4/
-4.2 Settings JSON Schema
-The configuration file dictates the state upon boot.
+--extra-index-url [https://download.pytorch.org/whl/cu121](https://download.pytorch.org/whl/cu121)
+torch
+torchvision
+torchaudio
+PyQt6
+opencv-contrib-python-headless>=4.10
+pycomm3
+flask
+pypylon
+ultralytics
+numpy<2
+If using a Raspberry Pi (CPU Only):
 
-JSON
-{
-    "active_program": "Part_A",
-    "program_list": ["Part_A", "Job_2"],
-    "io_mode": "PLC",
-    "cam_source": "Basler",
-    "basler_ip": "192.168.1.50",
-    "plc_ip": "192.168.1.10",
-    "crop_roi": {"x_min": 0.25, "x_max": 0.75, "y_min": 0.25, "y_max": 0.75},
-    "search_roi": {"x_min": 0.0, "x_max": 1.0, "y_min": 0.0, "y_max": 1.0},
-    "class_configs": {
-        "0": {"name": "Pass_Part", "threshold": 0.85},
-        "1": {"name": "Fail_Background", "threshold": 0.85}
-    }
-}
-5. Critical Execution Logic Requirements
-If rebuilding this system, the following engineering rules must be followed to prevent catastrophic failures:
+Plaintext
+PyQt6
+opencv-contrib-python-headless>=4.10
+pycomm3
+flask
+pypylon
+ultralytics
+numpy<2
+Run the installation:
 
-Trigger Atomic Reset: The Vision Engine must reset trigger_request to False the exact moment it detects it. Delaying this reset will cause the HMI to stack trigger requests, locking the software.
+Bash
+pip install -r requirements.txt
+Note on Basler Cameras: If you are using a Basler camera, you must also download and install the official "pylon Camera Software Suite" for your respective OS from the Basler website.
 
-Threaded IO: PLC communication (pycomm3) will hang the main Vision Engine loop if the physical PLC is disconnected or slow. PLC syncs must be placed inside a non-blocking threading.Thread(target=..., daemon=True).
+System Architecture
+The software is divided into four modular components that run simultaneously using Python's multiprocessing to ensure the UI never freezes while the camera is processing frames.
 
-UI Element Layouts: PyQt6 Layouts must be explicitly assigned to their parent widgets (e.g., tab.setLayout(layout)) or they will fail to render on screen without throwing an error.
+main.py (The Orchestrator): Bootstraps the application, creates the folder structures (models/, dataset/, etc.), and initializes the shared memory dictionary that allows the UI and the Vision Engine to talk to each other.
+
+vision_engine.py (The AI Core): Runs in the background. It manages the camera hardware, listens for PLC triggers, runs the YOLO mathematical inference, draws the bounding boxes, and serves the Flask video stream.
+
+hmi_app.py (The Interface): The PyQt6 graphical interface. Handles job management, confidence threshold adjustments, and the custom mouse-drawing tools for annotating images.
+
+trainer.py (The Compiler): Generates YOLO data.yaml files dynamically and orchestrates the local training pipeline, moving the finished .pt weights file to the correct directory upon completion.
+
+How to Use the System
+Phase 1: Teaching the AI (Annotation)
+Run the application: python main.py
+
+Click MODE on the left panel to switch to TRAIN mode.
+
+Place your target object in front of the camera.
+
+Click TRIGGER. The video feed will freeze.
+
+Click and drag your mouse to draw a tight green bounding box around the object.
+
+Select the appropriate Class (e.g., Class 0) from the dropdown and click Save Annotation.
+
+Move the object, rotate it, or alter the lighting, and repeat steps 4-6 until you have ~20-50 annotated images.
+
+Phase 2: Training the Model
+Once you have captured your dataset, click TRAIN YOLO.
+
+The progress bar will fill.
+
+On a Windows PC with a GPU, this takes ~2 minutes.
+
+On a Raspberry Pi CPU, this takes ~1-2 hours.
+
+The system trains for 50 epochs at a 320x320 resolution for optimized speed. When complete, the status will say SUCCESS.
+
+Phase 3: Running Inspections
+Click MODE to return to RUN mode.
+
+Place the object anywhere in the camera's field of view.
+
+Click TRIGGER (or fire the Vision_Trigger tag from your PLC).
+
+The Vision Engine will scan the image, draw a bounding box around the detected object, and output a PASS or FAIL based on the Confidence Thresholds set in the right-hand panel.
+
+Pro-Tip: The "Train Heavy, Run Light" Workflow
+For the best performance, do not train models on the Raspberry Pi.
+
+Run the system on your Pi to collect and annotate your images.
+
+Copy the dataset folder to a Windows PC equipped with an NVIDIA GPU.
+
+Run main.py on the PC and click TRAIN YOLO (finishes in minutes).
+
+Copy the resulting models/Part_A.pt file back to your Raspberry Pi.
+
+The Pi can now run live inspections at high speeds using the heavy math computed by the PC.

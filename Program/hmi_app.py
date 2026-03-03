@@ -52,61 +52,77 @@ class HMIApp:
         self.timer = QTimer(); self.timer.timeout.connect(self.refresh); self.timer.start(33)
 
     def setup_ui(self):
-        self.window.setWindowTitle("Pi-Pylon Controller (YOLO Edition)"); self.window.setFixedSize(1260, 950)
-        self.window.setStyleSheet("background-color: #121212; color: #eee;")
-        central = QWidget(); main_layout = QHBoxLayout()
+            self.window.setWindowTitle("Pi-Pylon Controller (YOLO Edition)"); self.window.setFixedSize(1260, 950)
+            self.window.setStyleSheet("background-color: #121212; color: #eee;")
+            central = QWidget(); main_layout = QHBoxLayout()
 
-        # LEFT
-        left = QVBoxLayout()
-        header = QHBoxLayout()
-        self.msg_lbl = QLabel("READY"); self.msg_lbl.setStyleSheet("font-size: 32px; font-weight: bold; color: #4CAF50;")
-        self.hb_light = PilotLight("ENGINE", QColor(0, 150, 255)); header.addWidget(self.msg_lbl, 5); header.addWidget(self.hb_light, 1)
-        left.addLayout(header)
-        
-        self.vid_lbl = AnnotationLabel(); self.vid_lbl.setFixedSize(640, 480); self.vid_lbl.setStyleSheet("border: 2px solid #555;")
-        left.addWidget(self.vid_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
-        self.pbar = QProgressBar(); self.pbar.hide(); left.addWidget(self.pbar)
+            # LEFT
+            left = QVBoxLayout()
+            left.setAlignment(Qt.AlignmentFlag.AlignTop) # <-- NEW: Packs everything to the top
 
-        btns = QHBoxLayout()
-        self.btn_m = QPushButton("MODE"); self.btn_m.clicked.connect(self.toggle_mode)
-        self.btn_t = QPushButton("TRIGGER"); self.btn_t.clicked.connect(self.request_trigger)
-        self.btn_s = QPushButton("SETTINGS"); self.btn_s.clicked.connect(self.open_settings)
-        self.btn_tr = QPushButton("TRAIN YOLO"); self.btn_tr.clicked.connect(self.start_training)
-        [btns.addWidget(b) for b in [self.btn_m, self.btn_t, self.btn_s, self.btn_tr]]; left.addLayout(btns)
+            header = QHBoxLayout()
+            self.msg_lbl = QLabel("READY"); self.msg_lbl.setStyleSheet("font-size: 32px; font-weight: bold; color: #4CAF50;")
+            self.hb_light = PilotLight("ENGINE", QColor(0, 150, 255)); header.addWidget(self.msg_lbl, 5); header.addWidget(self.hb_light, 1)
+            left.addLayout(header)
+            
+            # <-- CHANGED: AlignHCenter instead of AlignCenter so it doesn't fight the AlignTop command
+            self.vid_lbl = AnnotationLabel(); self.vid_lbl.setFixedSize(640, 480); self.vid_lbl.setStyleSheet("border: 2px solid #555;")
+            left.addWidget(self.vid_lbl, alignment=Qt.AlignmentFlag.AlignHCenter) 
+            self.pbar = QProgressBar(); self.pbar.hide(); left.addWidget(self.pbar)
 
-        io_panel = QHBoxLayout()
-        self.lights_in = {k: PilotLight(k) for k in self.state['io_in'].keys()}
-        self.lights_out = {k: PilotLight(k) for k in self.state['io_out'].keys()}
-        [io_panel.addWidget(l) for l in list(self.lights_in.values()) + list(self.lights_out.values())]
-        left.addLayout(io_panel)
+            btns = QHBoxLayout()
+            self.btn_m = QPushButton("MODE"); self.btn_m.clicked.connect(self.toggle_mode)
+            self.btn_t = QPushButton("TRIGGER"); self.btn_t.clicked.connect(self.request_trigger)
+            self.btn_s = QPushButton("SETTINGS"); self.btn_s.clicked.connect(self.open_settings)
+            self.btn_tr = QPushButton("TRAIN YOLO"); self.btn_tr.clicked.connect(self.start_training)
+            [btns.addWidget(b) for b in [self.btn_m, self.btn_t, self.btn_s, self.btn_tr]]; left.addLayout(btns)
 
-        self.teach_box = QGroupBox("Draw Box on Image & Save Annotation"); t_lay = QHBoxLayout()
-        self.class_selector = QComboBox()
-        for i in range(5): self.class_selector.addItem(f"Class {i}")
-        t_lay.addWidget(self.class_selector)
-        self.btn_save_ann = QPushButton("Save Annotation"); self.btn_save_ann.clicked.connect(self.save_annotation); t_lay.addWidget(self.btn_save_ann)
-        self.teach_box.setLayout(t_lay); left.addWidget(self.teach_box); main_layout.addLayout(left, 2)
+            io_panel = QHBoxLayout()
+            self.lights_in = {k: PilotLight(k) for k in self.state['io_in'].keys()}
+            self.lights_out = {k: PilotLight(k) for k in self.state['io_out'].keys()}
+            [io_panel.addWidget(l) for l in list(self.lights_in.values()) + list(self.lights_out.values())]
+            left.addLayout(io_panel)
 
-        # RIGHT
-        right = QVBoxLayout()
-        right.addWidget(QLabel("CLASSES & THRESHOLDS"))
-        self.class_widgets = {}
-        for i in range(5):
-            r = QHBoxLayout(); n = QLineEdit(self.state['class_configs'][i]['name']); n.editingFinished.connect(self.update_cfg)
-            s = QDoubleSpinBox(); s.setRange(0, 1.0); s.setValue(self.state['class_configs'][i]['threshold']); s.valueChanged.connect(self.update_cfg)
-            r.addWidget(QLabel(f"#{i}")); r.addWidget(n); r.addWidget(s); right.addLayout(r); self.class_widgets[i] = (n, s)
+            self.teach_box = QGroupBox("Draw Box on Image & Save Annotation"); t_lay = QHBoxLayout()
+            self.class_selector = QComboBox()
+            for i in range(5): self.class_selector.addItem(f"Class {i}")
+            t_lay.addWidget(self.class_selector)
+            self.btn_save_ann = QPushButton("Save Annotation"); self.btn_save_ann.clicked.connect(self.save_annotation); t_lay.addWidget(self.btn_save_ann)
+            self.teach_box.setLayout(t_lay); left.addWidget(self.teach_box)
+            
+            left.addStretch() # <-- NEW: Absorbs all remaining empty space at the bottom of the left panel
+            main_layout.addLayout(left, 2)
 
-        right.addWidget(QLabel("JOB MANAGEMENT"))
-        self.prog_list_ui = QListWidget(); self.prog_list_ui.setFixedHeight(120)
-        for p in self.state['program_list']: self.prog_list_ui.addItem(p)
-        self.prog_list_ui.itemClicked.connect(self.select_program); right.addWidget(self.prog_list_ui)
-        p_ctrls = QHBoxLayout(); self.btn_new = QPushButton("NEW JOB"); self.btn_new.clicked.connect(self.add_program)
-        self.btn_del = QPushButton("DELETE JOB"); self.btn_del.clicked.connect(self.delete_program)
-        p_ctrls.addWidget(self.btn_new); p_ctrls.addWidget(self.btn_del); right.addLayout(p_ctrls)
+            # RIGHT
+            right = QVBoxLayout()
+            right.setAlignment(Qt.AlignmentFlag.AlignTop) # <-- NEW: Pack the right side to the top too
+            
+            right.addWidget(QLabel("CLASSES & THRESHOLDS"))
+            self.class_widgets = {}
+            for i in range(5):
+                r = QHBoxLayout(); n = QLineEdit(self.state['class_configs'][i]['name']); n.editingFinished.connect(self.update_cfg)
+                s = QDoubleSpinBox(); s.setRange(0, 1.0); s.setValue(self.state['class_configs'][i]['threshold']); s.valueChanged.connect(self.update_cfg)
+                r.addWidget(QLabel(f"#{i}")); r.addWidget(n); r.addWidget(s); right.addLayout(r); self.class_widgets[i] = (n, s)
 
-        self.hist = QListWidget(); right.addWidget(self.hist); main_layout.addLayout(right, 1)
-        central.setLayout(main_layout); self.window.setCentralWidget(central); self.update_ui_visibility()
+            # Add a little spacing
+            right.addSpacing(20)
 
+            right.addWidget(QLabel("JOB MANAGEMENT"))
+            self.prog_list_ui = QListWidget(); self.prog_list_ui.setFixedHeight(120)
+            for p in self.state['program_list']: self.prog_list_ui.addItem(p)
+            self.prog_list_ui.itemClicked.connect(self.select_program); right.addWidget(self.prog_list_ui)
+            p_ctrls = QHBoxLayout(); self.btn_new = QPushButton("NEW JOB"); self.btn_new.clicked.connect(self.add_program)
+            self.btn_del = QPushButton("DELETE JOB"); self.btn_del.clicked.connect(self.delete_program)
+            p_ctrls.addWidget(self.btn_new); p_ctrls.addWidget(self.btn_del); right.addLayout(p_ctrls)
+
+            right.addSpacing(20)
+            
+            right.addWidget(QLabel("INSPECTION HISTORY"))
+            self.hist = QListWidget(); right.addWidget(self.hist)
+            
+            main_layout.addLayout(right, 1)
+            central.setLayout(main_layout); self.window.setCentralWidget(central); self.update_ui_visibility()
+            
     def open_settings(self): SettingsDialog(self.state, self.window).exec()
     def add_program(self):
         name, ok = QInputDialog.getText(self.window, "New Job", "Name:")
@@ -125,7 +141,7 @@ class HMIApp:
         
     def toggle_mode(self):
         self.state['mode'] = "TRAIN" if self.state['mode'] == "RUN" else "RUN"
-        self.state['last_captured_frame'] = False # Unfreeze when switching modes
+        self.state['last_captured_frame'] = False 
         self.vid_lbl.rect = QRect(); self.update_ui_visibility()
         
     def update_ui_visibility(self):
@@ -154,7 +170,6 @@ class HMIApp:
                 except: pass
 
     def request_trigger(self):
-        # Unfreeze the feed instantly, then send the trigger to the vision engine
         self.state['last_captured_frame'] = False
         self.state['trigger_request'] = True
         self.vid_lbl.rect = QRect()
